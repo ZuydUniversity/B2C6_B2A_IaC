@@ -1,0 +1,39 @@
+  ---
+- name: Start Azure VM and Docker Container
+  hosts: localhost
+  tasks:
+    - name: Log in to Azure
+      shell: az login ${{ secrets.LOGINCREDENTIALSAZ }}
+      register: login_output
+
+    - name: Start the VM
+      shell: az vm start --resource-group B2C6A --name DevOpsB2aVm
+      when: login_output is succeeded
+
+- name: Wait for SSH to become available on Database VM
+  hosts: localhost
+  tasks:
+    - name: Wait for SSH to become available
+      wait_for:
+        host: 20.16.87.228
+        port: 22
+        delay: 10
+        timeout: 300
+        state: started
+
+    - name: Test SSH connection to Database VM
+      shell: |
+        ssh -o StrictHostKeyChecking=no -i ~/ansibleproject/database-private-key ${{ secrets.ADMIN_USERNAME_AZ }}@20.16.87.228 echo "SSH is up"
+      register: ssh_test
+      ignore_errors: yes
+
+    - name: Debug SSH connection result
+      debug:
+        var: ssh_test
+
+- name: Start Docker Container on Database VM
+  hosts: database
+  tasks:
+    - name: Start Docker container
+      shell: docker start ${{ secrets.DB_CONTAINER_ID }}
+      become: true

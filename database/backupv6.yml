@@ -1,0 +1,95 @@
+---
+- name: Backup MySQL database and restore to new Azure VM
+  hosts: database
+  vars:
+    database_name: "your_database_name"
+    database_user: "${{ secrets.DB_ADMIN }}"
+    database_password: "${{ secrets.DB_PASSWORD }}"
+    root_password: "${{ secrets.DB_PASSWORD }}" # Voeg dit toe om de root gebruiker in te stellen
+    backup_dir: "/home/${{ secrets.ADMIN_USERNAME_AZ }}/backups"
+    container_id: "${{ secrets.DB_CONTAINER_ID }}"
+    storage_account: "b2astorage"
+    storage_container: "backups"
+    storage_key: "${{ secrets.STORAGE_KEY }}"
+    vm_name: "DB-backup3"
+    resource_group: "B2C6A"
+    admin_username: "${{ secrets.ADMIN_USERNAME_AZ }}"
+    tenant_id: "${{ secrets.TENANT_ID }}"
+    client_id: "${{ secrets.CLIENT_ID }}"
+    client_secret: "${{ secrets.CLIENT_SECRET }}"
+  tasks:
+    - name: Create backup directory on database VM
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+      become: yes
+
+    - name: Set timestamp variable
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+
+    - name: Take MySQL database backup
+      command: docker exec {{ container_id }} sh -c "mysqldump -u{{ database_user }} -p{{ database_password }} {{ database_name }} > /tmp/db_backup_{{ timestamp }}.sql"
+      become: yes
+
+    - name: Copy backup file from container to host
+      command: docker cp {{ container_id }}:/tmp/db_backup_{{ timestamp }}.sql {{ backup_dir }}/db_backup_{{ timestamp }}.sql
+      become: yes
+
+    - name: Remove temporary backup file from container
+      command: docker exec {{ container_id }} rm /tmp/db_backup_{{ timestamp }}.sql
+      become: yes
+
+    - name: Upload backup to Azure Blob Storage
+      azure_rm_storageblob:
+        resource_group: "{{ resource_group }}"
+        storage_account_name: "{{ storage_account }}"
+        blob: "db_backup_{{ timestamp }}.sql"
+        container: "{{ storage_container }}"
+        src: "{{ backup_dir }}/db_backup_{{ timestamp }}.sql"
+        state: present
+
+    - name: Log in to Azure
+      shell: az login ${{ secrets.LOGINCREDENTIALSAZ }}
+      register: login_output
+
+    - name: Create the VM
+      shell: >
+        az vm create --resource-group {{ resource_group }} --name {{ vm_name }}
+        --image "Canonical:0001-com-ubuntu-minimal-jammy:minimal-22_04-lts-gen2:latest"
+        --admin-username {{ admin_username }} --assign-identity --generate-ssh-keys
+        --public-ip-sku Standard --location westeurope --size Standard_B1s
+        --storage-sku Standard_LRS --nic-delete-option delete --os-disk-delete-option delete
+      when: login_output is succeeded
+      register: vm_info
+
+    - name: Install Docker on new VM
+      shell: |
+        az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "sudo apt-get update && sudo apt-get install -y docker.io"
+      when: vm_info is succeeded
+
+    - name: Start MySQL Docker container on new VM
+      shell: |
+        az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "sudo docker run --name mysql -e MYSQL_ROOT_PASSWORD={{ ro>
+      when: vm_info is succeeded
+
+    - name: Create MySQL database user on new VM
+      shell: |
+        az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "
+          sudo docker exec -i mysql mysql -uroot -p{{ root_password }} -e \"
+          CREATE DATABASE IF NOT EXISTS {{ database_name }};
+          CREATE USER IF NOT EXISTS '{{ database_user }}'@'%' IDENTIFIED BY '{{ database_password }}';
+          GRANT ALL PRIVILEGES ON {{ database_name }}.* TO '{{ database_user }}'@'%';
+          FLUSH PRIVILEGES;\"
+        "
+      when: vm_info is succeeded
+
+    - name: Download backup from Azure Blob Storage to new VM
+      shell: |
+        az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "az storage blob download --account-name {{ storage_accoun>
+      when: vm_info is succeeded
+
+    - name: Restore MySQL database from backup
+      shell: |
+        az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "sudo docker exec -i mysql sh -c 'exec mysql -u{{ database>
+      when: vm_info is succeeded

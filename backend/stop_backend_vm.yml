@@ -1,0 +1,15 @@
+---
+- name: Stop Azure VM
+  hosts: localhost
+  tasks:
+    - name: Log in to Azure
+      shell: az login ${{ secrets.LOGINCREDENTIALSAZ }}
+      register: login_output
+
+    - name: Stop the VM
+      shell: az vm stop --resource-group B2C6A --name DevOpsB2aVmV3
+      when: login_output is succeeded
+
+    - name: Deallocate the VM
+      shell: az vm deallocate --resource-group B2C6A --name DevOpsB2aVmV3
+      when: login_output is succeeded

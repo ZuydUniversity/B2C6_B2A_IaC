@@ -1,0 +1,30 @@
+---
+- hosts: database
+  vars:
+    database_name: "your_database_name"
+    database_user: "${{ secrets.ADMIN_USERNAME_AZ }}"
+    database_password: "${{ secrets.DB_PASSWORD }}"
+    backup_dir: "/home/${{ secrets.ADMIN_USERNAME_AZ }}/backups"
+    container_id: "${{ secrets.DB_CONTAINER_ID }}"
+  tasks:
+    - name: Create backup directory on database VM
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+      become: yes
+
+    - name: Set timestamp variable
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+
+    - name: Take MySQL database backup
+      command: docker exec {{ container_id }} sh -c "mysqldump -u{{ database_user }} -p{{ database_password }} {{ database_name }} > /tmp/db_backup_{{ timestamp }}.sql"
+      become: yes
+
+    - name: Copy backup file from container to host
+      command: docker cp {{ container_id }}:/tmp/db_backup_{{ timestamp }}.sql {{ backup_dir }}/db_backup_{{ timestamp }}.sql
+      become: yes
+
+    - name: Remove temporary backup file from container
+      command: docker exec {{ container_id }} rm /tmp/db_backup_{{ timestamp }}.sql
+      become: yes
