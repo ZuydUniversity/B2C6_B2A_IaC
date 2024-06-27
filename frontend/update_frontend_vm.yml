@@ -1,0 +1,44 @@
+---
+- name: Automate frontend setup
+  hosts: frontend
+  gather_facts: false
+
+  tasks:
+    - name: Check if frontend is reachable
+      ping:
+
+    - name: Clone repository B2C6_B2A_Frontend into frontend25 directory
+      become: true
+      become_user: ${{ secrets.ADMIN_USERNAME_AZ }}
+      git:
+        repo: https://github.com/ZuydUniversity/B2C6_B2A_Frontend
+        dest: ~/frontend25/B2C6_B2A_Frontend
+
+    - name: Change directory to B2C6_B2A_Frontend
+      become: true
+      become_user: ${{ secrets.ADMIN_USERNAME_AZ }}
+      shell: cd ~/frontend25/B2C6_B2A_Frontend/
+
+    - name: Run npm install
+      become: true
+      become_user: ${{ secrets.ADMIN_USERNAME_AZ }}
+      shell:
+        cmd: npm install
+        chdir: ~/frontend25/B2C6_B2A_Frontend/
+
+    - name: Replace vite.config.js with custom configuration
+      become: true
+      become_user: ${{ secrets.ADMIN_USERNAME_AZ }}
+      ansible.builtin.copy:
+        content: |
+          import { defineConfig } from 'vite';
+
+          export default defineConfig({
+            server: {
+              host: '0.0.0.0',
+              port: 80,
+              strictPort: true,
+              cors: true
+            }
+          });
+        dest: ~/frontend25/B2C6_B2A_Frontend/vite.config.js
