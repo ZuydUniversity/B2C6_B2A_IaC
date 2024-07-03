@@ -163,12 +163,12 @@
       copy:
         dest: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/B2C6_B2A_Backend/.env
         content: |
-          MYSQL_USER={{ secrets.MYSQL_USER  }}
-          MYSQL_PASSWORD={{ secrets.MYSQL_PASSWORD  }}
-          MYSQL_DB={{ secrets.MYSQL_DB }}
+          MYSQL_USER={{ secrets.MYSQL_USER }}
+          MYSQL_PASSWORD={{ secrets.MYSQL_PASSWORD }}
+          MYSQL_DB={{ secrets.DB_NAME }}
           MYSQL_HOST=20.16.87.228
-          SECRET_KEY={{ secrets.SECRET_KEY_ENV  }}
-          MAIL_PASSWORD={{ secrets.ADMIN_USERNAME_AZ  }}
+          SECRET_KEY={{ secrets.SECRET_KEY_ENV }}
+          MAIL_PASSWORD={{ secrets.MAIL_PASSWORD }}
 
     - name: Modify Backend_B2A.py to set host and port
       become: true
