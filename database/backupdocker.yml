@@ -1,0 +1,85 @@
+---
+- name: Set up MySQL Docker container on VM
+  hosts: dockertest
+  become: yes
+  vars:
+    mysql_root_password: "{{ secrets.DB_PASSWORD }}"
+    mysql_database: "backupDB"
+    mysql_user: "{{ secrets.DB_ADMIN }}"
+    mysql_password: "{{ secrets.DB_PASSWORD }}"
+  tasks:
+    - name: Update apt and install required packages
+      apt:
+        update_cache: yes
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - ufw
+        state: present
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker
+      apt:
+        update_cache: yes
+        name: docker-ce
+        state: present
+
+    - name: Ensure Docker is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Pull MySQL Docker image
+      docker_image:
+        name: mysql
+        tag: latest
+        source: pull
+
+    - name: Run MySQL Docker container
+      docker_container:
+        name: mysql_container
+        image: mysql:latest
+        state: started
+        restart_policy: unless-stopped
+        env:
+          MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
+        ports:
+          - "3306:3306"
+          - "3307:3307"
+
+    - name: Wait for MySQL to be ready
+      wait_for:
+        host: "127.0.0.1"
+        port: 3306
+        delay: 30
+        timeout: 300
+
+    - name: Create backupDB database
+      command: docker exec mysql_container mysql -u root -p{{ mysql_root_password }} -e "CREATE DATABASE IF NOT EXISTS {{ mysql_database }};"
+
+    - name: Create MySQL user and grant privileges
+      command: docker exec mysql_container mysql -u root -p{{ mysql_root_password }} -e "CREATE USER IF NOT EXISTS '{{ mysql_user }}'@'%' IDENTIFIED BY '{{ mysql_password }}'; GRANT ALL PRIVILEGES ON {{ mysql_database }}.* TO '{{ mysql_user }}'@'%'; FLUSH PRIVILEGES;"
+
+    - name: Allow MySQL ports in firewall
+      ufw:
+        rule: allow
+        port: "3306"
+        proto: tcp
+
+    - name: Allow custom MySQL port in firewall
+      ufw:
+        rule: allow
+        port: "3307"
+        proto: tcp

@@ -1,0 +1,62 @@
+---
+- name: Backup and Create Azure VM
+  hosts: localhost
+  collections:
+    - azure.azcollection
+  vars:
+    resource_group: "B2C6A"
+    snapshot_name: "DevOpsB2AVmV3-snapshot"
+    location: "westeurope"
+    subscription_id: "8d9ee96d-4dfb-422e-880b-151705e0d558"
+    os_disk_name: "DevOpsB2AVmV3_disk1_ec8b4602794e43ccb3767d571fe4584e"
+    new_vm_name: "DevOpsB2AVmV3-backupv3"
+    new_disk_name: "DevOpsB2AVmV3-backupv3-disk"
+    vm_size: "Standard_B1s"
+    admin_username: "{{ secrets.ADMIN_USERNAME_AZ  }}"
+
+  tasks:
+    - name: Create a snapshot of the OS disk
+      azure.azcollection.azure_rm_snapshot:
+        resource_group: "{{ resource_group }}"
+        name: "{{ snapshot_name }}"
+        location: "{{ location }}"
+        creation_data:
+          create_option: "Copy"
+          source_uri: "/subscriptions/{{ subscription_id }}/resourceGroups/{{ resource_group }}/providers/Microsoft.Compute/disks/{{ os_disk_name }}"
+        state: "present"
+      register: snapshot
+
+    - name: Wait for 2 minutes for the snapshot to be available
+      pause:
+        minutes: 2
+
+    - name: Create a new managed disk from the snapshot
+      azure.azcollection.azure_rm_manageddisk:
+        resource_group: "{{ resource_group }}"
+        name: "{{ new_disk_name }}"
+        location: "{{ location }}"
+        create_option: "copy"
+        source_uri: "{{ snapshot.id }}"
+      register: new_disk
+
+    - name: Wait for managed disk to be available
+      pause:
+        minutes: 2
+
+    - name: Check the status of the managed disk
+      shell: >
+        az disk show --resource-group {{ resource_group }} --name {{ new_disk_name }} --query "provisioningState"
+      register: disk_status
+      until: disk_status.stdout == '"Succeeded"'
+      retries: 10
+      delay: 30
+
+    - name: Create the new VM with the managed disk
+      shell: >
+        az vm create --resource-group {{ resource_group }} --name {{ new_vm_name }}
+        --attach-os-disk {{ new_disk_name }} --os-type Linux
+        --public-ip-sku Standard --location {{ location }} --size {{ vm_size }}
+        --nic-delete-option delete --os-disk-delete-option delete
+      when: new_disk is succeeded
+      register: create_vm_output
+      changed_when: "'status' in create_vm_output.stdout and create_vm_output.stdout['status'] == 'Succeeded'"

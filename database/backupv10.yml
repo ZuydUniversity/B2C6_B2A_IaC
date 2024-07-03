@@ -3,7 +3,7 @@
   hosts: database  # Verbinding wordt gelegd met localhost voor het uitvoeren van taken
   vars:
     container_id: "{{ secrets.CONTAINER_ID_COPY  }}"  # ID van de huidige MySQL Docker-container
-    vm_name: "DB-backup24"
+    vm_name: "DB-backup26"
     resource_group: "B2C6A"
     admin_username: "{{ secrets.ADMIN_USERNAME_AZ  }}"
     tenant_id: "{{ secrets.TENANT_ID }}"
@@ -12,7 +12,7 @@
     root_password: "{{ secrets.DB_PASSWORD }}"  # Voeg dit toe om de root gebruiker in te stellen
     database_user: "{{ secrets.DB_ADMIN }}"
     database_password: "{{ secrets.DB_PASSWORD }}"
-    new_container_name: "mysql_newwwwwwwwwwwwww"  # Nieuwe container naam
+    new_container_name: "mysql_newwwwwwwwwwwwwwww"  # Nieuwe container naam
     private_key_path: "{{ secrets.PRIVATE_KEY_PATH }}"  # Pad naar je private key
 
   tasks:
@@ -57,16 +57,15 @@
         az vm open-port --resource-group {{ resource_group }} --name {{ vm_name }} --port 3307 --priority 1300
       when: vm_info is succeeded
 
-    - name: Install Docker on new VM
+    - name: Install Docker and rsync on new VM
       shell: |
-        az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "sudo apt-get update && sudo apt-get install -y docker.io"
+        az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "sudo apt-get update && sudo apt-get install -y docker.io rsync"
       when: vm_info is succeeded
 
     - name: Copy tarball to new VM
-      ansible.builtin.copy:
+      synchronize:
         src: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/mysql_container.tar
         dest: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/mysql_container.tar
-        remote_src: yes
       delegate_to: "{{ vm_public_ip.stdout }}"
       vars:
         ansible_ssh_private_key_file: "{{ private_key_path }}"

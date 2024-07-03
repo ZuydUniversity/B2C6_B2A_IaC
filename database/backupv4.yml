@@ -5,13 +5,12 @@
     database_name: "{{ secrets.DB_NAME }}"
     database_user: "{{ secrets.DB_ADMIN }}"
     database_password: "{{ secrets.DB_PASSWORD }}"
-    root_password: "{{ secrets.DB_PASSWORD }}" # Voeg dit toe om de root gebruiker in te stellen
     backup_dir: "/home/{{ secrets.ADMIN_USERNAME_AZ  }}/backups"
     container_id: "{{ secrets.DB_CONTAINER_ID }}"
     storage_account: "b2astorage"
     storage_container: "backups"
     storage_key: "{{ secrets.STORAGE_KEY }}"
-    vm_name: "DB-backup3"
+    vm_name: "DB-backup"
     resource_group: "B2C6A"
     admin_username: "{{ secrets.ADMIN_USERNAME_AZ  }}"
     tenant_id: "{{ secrets.TENANT_ID }}"
@@ -70,18 +69,7 @@
 
     - name: Start MySQL Docker container on new VM
       shell: |
-        az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "sudo docker run --name mysql -e MYSQL_ROOT_PASSWORD={{ root_password }} -d mysql"
-      when: vm_info is succeeded
-
-    - name: Create MySQL database user on new VM
-      shell: |
-        az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "
-          sudo docker exec -i mysql mysql -uroot -p{{ root_password }} -e \"
-          CREATE DATABASE IF NOT EXISTS {{ database_name }};
-          CREATE USER IF NOT EXISTS '{{ database_user }}'@'%' IDENTIFIED BY '{{ database_password }}';
-          GRANT ALL PRIVILEGES ON {{ database_name }}.* TO '{{ database_user }}'@'%';
-          FLUSH PRIVILEGES;\"
-        "
+        az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "sudo docker run --name mysql -e MYSQL_ROOT_PASSWORD={{ database_password }} -d mysql"
       when: vm_info is succeeded
 
     - name: Download backup from Azure Blob Storage to new VM
