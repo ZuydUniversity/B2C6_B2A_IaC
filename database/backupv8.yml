@@ -1,9 +1,9 @@
 ---
 - name: Export and import MySQL Docker container to new Azure VM
-  hosts: database  # Verbinding wordt gelegd met localhost voor het uitvoeren van taken
+  hosts: database
   vars:
     container_id: "{{ secrets.CONTAINER_ID_COPY  }}"  # ID van de huidige MySQL Docker-container
-    vm_name: "DB-backup24"
+    vm_name: "DB-backup9"
     resource_group: "B2C6A"
     admin_username: "{{ secrets.ADMIN_USERNAME_AZ  }}"
     tenant_id: "{{ secrets.TENANT_ID }}"
@@ -12,8 +12,7 @@
     root_password: "{{ secrets.DB_PASSWORD }}"  # Voeg dit toe om de root gebruiker in te stellen
     database_user: "{{ secrets.DB_ADMIN }}"
     database_password: "{{ secrets.DB_PASSWORD }}"
-    new_container_name: "mysql_newwwwwwwwwwwwww"  # Nieuwe container naam
-    private_key_path: "{{ secrets.PRIVATE_KEY_PATH }}"  # Pad naar je private key
+    new_container_name: "mysql_newwww"  # Nieuwe container naam
 
   tasks:
     - name: Stop MySQL Docker container on original VM
@@ -26,6 +25,12 @@
       become: yes
       args:
         creates: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/mysql_container.tar  # Controleer of het bestand al bestaat
+
+    - name: Copy tarball to new VM
+      ansible.builtin.copy:
+        src: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/mysql_container.tar
+        dest: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/mysql_container.tar
+        remote_src: yes
 
     - name: Log in to Azure
       shell: az login --service-principal -u {{ client_id }} -p {{ client_secret }} --tenant {{ tenant_id }}
@@ -40,12 +45,6 @@
         --storage-sku Standard_LRS --nic-delete-option delete --os-disk-delete-option delete
       when: login_output is succeeded
       register: vm_info
-
-    - name: Get the public IP of the new VM
-      shell: >
-        az vm list-ip-addresses --resource-group {{ resource_group }} --name {{ vm_name }} --query "[0].virtualMachine.network.publicIpAddresses[0].ipAddress" --output tsv
-      when: vm_info is succeeded
-      register: vm_public_ip
 
     - name: Open port 3306 on the new VM for all traffic
       shell: >
@@ -62,56 +61,14 @@
         az vm run-command invoke --command-id RunShellScript --name {{ vm_name }} --resource-group {{ resource_group }} --scripts "sudo apt-get update && sudo apt-get install -y docker.io"
       when: vm_info is succeeded
 
-    - name: Copy tarball to new VM
-      ansible.builtin.copy:
-        src: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/mysql_container.tar
-        dest: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/mysql_container.tar
-        remote_src: yes
-      delegate_to: "{{ vm_public_ip.stdout }}"
-      vars:
-        ansible_ssh_private_key_file: "{{ private_key_path }}"
-
     - name: Import MySQL Docker container on new VM
       shell: |
         sudo docker import /home/{{ secrets.ADMIN_USERNAME_AZ  }}/mysql_container.tar mysql_backup:latest
       args:
         chdir: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/
-      delegate_to: "{{ vm_public_ip.stdout }}"
-      vars:
-        ansible_ssh_private_key_file: "{{ private_key_path }}"
       when: vm_info is succeeded
 
     - name: Start MySQL Docker container on new VM with a new name
       shell: |
         sudo docker run --name {{ new_container_name }} -e MYSQL_ROOT_PASSWORD={{ root_password }} -d mysql_backup mysqld --default-authentication-plugin=mysql_native_password
-      delegate_to: "{{ vm_public_ip.stdout }}"
-      vars:
-        ansible_ssh_private_key_file: "{{ private_key_path }}"
       when: vm_info is succeeded
-
-    - name: Wait for MySQL to be ready
-      shell: |
-        for i in {30..0}; do
-          sudo docker exec {{ new_container_name }} mysqladmin ping -uroot -p{{ root_password }} && break
-          echo 'MySQL init process in progress...'
-          sleep 1
-        done
-      register: wait_for_mysql
-      until: wait_for_mysql.rc == 0
-      retries: 30
-      delay: 10
-      delegate_to: "{{ vm_public_ip.stdout }}"
-      vars:
-        ansible_ssh_private_key_file: "{{ private_key_path }}"
-      when: vm_info is succeeded
-
-    - name: Check MySQL Docker container logs
-      shell: sudo docker logs {{ new_container_name }}
-      register: docker_logs
-      delegate_to: "{{ vm_public_ip.stdout }}"
-      vars:
-        ansible_ssh_private_key_file: "{{ private_key_path }}"
-      when: vm_info is succeeded
-
-    - debug:
-        msg: "{{ docker_logs.stdout }}"

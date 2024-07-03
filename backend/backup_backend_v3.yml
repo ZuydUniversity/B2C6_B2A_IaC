@@ -1,0 +1,192 @@
+---
+- name: Create Azure VM and Setup Backend
+  hosts: localhost
+  tasks:
+    - name: Log in to Azure
+      shell: az login --service-principal -u {{ secrets.CLIENT_ID }} -p {{ secrets.CLIENT_SECRET }} --tenant {{ secrets.TENANT_ID }}
+      register: login_output
+
+    - name: Create the VM
+      shell: >
+        az vm create --resource-group B2C6A --name backend-backupTest
+        --image "Canonical:0001-com-ubuntu-minimal-jammy:minimal-22_04-lts-gen2:latest"
+        --admin-username {{ secrets.ADMIN_USERNAME_AZ  }} --assign-identity --generate-ssh-keys
+        --public-ip-sku Standard --location westeurope --size Standard_B1s
+        --storage-sku Standard_LRS --nic-delete-option delete --os-disk-delete-option delete
+      register: create_vm_output
+      when: login_output is succeeded
+
+    - name: Open port 5000 on the VM
+      shell: az vm open-port --resource-group B2C6A --name backend-backupTest --port 5000 --priority 1500
+      when: create_vm_output is succeeded
+
+    - name: Wait for the VM to be ready
+      pause:
+        minutes: 2
+      when: create_vm_output is succeeded
+
+    - name: Get the public IP of the new VM
+      shell: az vm list-ip-addresses --resource-group B2C6A --name backend-backupTest --query "[].virtualMachine.network.publicIpAddresses[].ipAddress" -o tsv
+      register: vm_ip
+
+    - name: Add the new VM to a temporary inventory
+      add_host:
+        name: backend-backupTest
+        ansible_host: "{{ vm_ip.stdout }}"
+        ansible_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+        ansible_ssh_private_key_file: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/ansibleproject/backup-backend-private-key
+
+- name: Configure Backend on New VM
+  hosts: backend-backupTest
+  tasks:
+    - name: Ensure the VM is reachable
+      ping:
+
+    - name: Update apt package index
+      become: true
+      apt:
+        update_cache: yes
+
+    - name: Upgrade all packages
+      become: true
+      apt:
+        upgrade: yes
+
+    - name: Install git
+      become: true
+      apt:
+        name: git
+        state: present
+
+    - name: Install python3-pip
+      become: true
+      apt:
+        name: python3-pip
+        state: present
+
+    - name: Install nano
+      become: true
+      apt:
+        name: nano
+        state: present
+
+    - name: Clone the backend repository
+      become: true
+      git:
+        repo: https://github.com/ZuydUniversity/B2C6_B2A_Backend.git
+        dest: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/B2C6_B2A_Backend
+
+    - name: Update apt package index again
+      become: true
+      apt:
+        update_cache: yes
+
+    - name: Install pkg-config
+      become: true
+      apt:
+        name: pkg-config
+        state: present
+
+    - name: Install MySQL development headers
+      become: true
+      apt:
+        name: libmysqlclient-dev
+        state: present
+
+    - name: Install specific version of mysqlclient
+      become: true
+      pip:
+        name: mysqlclient==2.1.1
+
+    - name: Install Flask
+      become: true
+      pip:
+        name: Flask==2.2.3
+
+    - name: Install Flask-MySQLdb
+      become: true
+      pip:
+        name: Flask-MySQLdb==1.0.1
+
+    - name: Install Flask-CORS
+      become: true
+      pip:
+        name: Flask-CORS==4.0.1
+
+    - name: Install fpdf
+      become: true
+      pip:
+        name: fpdf==1.7.2
+
+    - name: Install python-dotenv
+      become: true
+      pip:
+        name: python-dotenv==1.0.1
+
+    - name: Install pytest
+      become: true
+      pip:
+        name: pytest==8.2.2
+
+    - name: Install pytest-mock
+      become: true
+      pip:
+        name: pytest-mock==3.14.0
+
+    - name: Install Flask-Mail
+      become: true
+      pip:
+        name: Flask-Mail==0.10.0
+
+    - name: Install itsdangerous
+      become: true
+      pip:
+        name: itsdangerous==2.2.0
+
+    - name: Install imgurpython
+      become: true
+      pip:
+        name: imgurpython==1.1.7
+
+    - name: Install reportlab
+      become: true
+      pip:
+        name: reportlab==4.2.2
+
+    - name: Install Werkzeug
+      become: true
+      pip:
+        name: Werkzeug==2.2.2
+
+    - name: Create .env file with required environment variables
+      become: true
+      copy:
+        dest: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/B2C6_B2A_Backend/.env
+        content: |
+          MYSQL_USER={{ secrets.MYSQL_USER  }}
+          MYSQL_PASSWORD={{ secrets.MYSQL_PASSWORD  }}
+          MYSQL_DB={{ secrets.MYSQL_DB }}
+          MYSQL_HOST=20.16.87.228
+          SECRET_KEY={{ secrets.SECRET_KEY_ENV  }}
+          MAIL_PASSWORD={{ secrets.ADMIN_USERNAME_AZ  }}
+
+    - name: Modify Backend_B2A.py to set host and port
+      become: true
+      lineinfile:
+        path: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/B2C6_B2A_Backend/Backend_B2A.py
+        regexp: '^(.*app.run\(debug=True\))'
+        line: "\tapp.run(host='0.0.0.0', port=5000, debug=True)"
+
+
+    - name: Add path to ~/.bashrc
+      become: true
+      lineinfile:
+        path: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/.bashrc
+        line: 'export PATH=$PATH:/home/{{ secrets.ADMIN_USERNAME_AZ  }}/.local/bin'
+        state: present
+
+    - name: Source ~/.bashrc
+      become: true
+      shell: source ~/.bashrc
+      args:
+        executable: /bin/bash

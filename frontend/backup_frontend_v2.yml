@@ -1,0 +1,91 @@
+---
+- name: Create Azure VM and Setup Frontend
+  hosts: localhost
+  tasks:
+    - name: Log in to Azure
+      shell: az login --service-principal -u {{ secrets.CLIENT_ID }} -p {{ secrets.CLIENT_SECRET }} --tenant {{ secrets.TENANT_ID }}
+      register: login_output
+
+    - name: Create the VM
+      shell: >
+        az vm create --resource-group B2C6A --name frontend-backupTest2
+        --image "Canonical:0001-com-ubuntu-minimal-jammy:minimal-22_04-lts-gen2:latest"
+        --admin-username {{ secrets.ADMIN_USERNAME_AZ  }} --assign-identity --generate-ssh-keys
+        --public-ip-sku Standard --location westeurope --size Standard_B1s
+        --storage-sku Standard_LRS --nic-delete-option delete --os-disk-delete-option delete
+      register: create_vm_output
+      when: login_output is succeeded
+
+    - name: Wait for the VM to be ready
+      pause:
+        minutes: 2
+      when: create_vm_output is succeeded
+
+    - name: Get the public IP of the new VM
+      shell: az vm list-ip-addresses --resource-group B2C6A --name frontend-backupTest2 --query "[].virtualMachine.network.publicIpAddresses[].ipAddress" -o tsv
+      register: vm_ip
+
+    - name: Add the new VM to a temporary inventory
+      add_host:
+        name: frontend-backupTest2
+        ansible_host: "{{ vm_ip.stdout }}"
+        ansible_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+        ansible_ssh_private_key_file: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/ansibleproject/backup-frontend-private-key
+
+- name: Automate frontend setup
+  hosts: frontend-backupTest2
+  gather_facts: false
+  tasks:
+    - name: Check if frontend is reachable
+      ping:
+
+    - name: Install git
+      become: true
+      apt:
+        name: git
+        state: present
+        update_cache: yes
+
+    - name: Install Node.js and npm
+      become: true
+      shell: |
+        curl -sL https://deb.nodesource.com/setup_16.x | sudo -E bash -
+        apt-get install -y nodejs
+
+    - name: Create backup directory
+      become: true
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+      file:
+        path: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup
+        state: directory
+
+    - name: Clone repository B2C6_B2A_Frontend into backup directory
+      become: true
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+      git:
+        repo: https://github.com/ZuydUniversity/B2C6_B2A_Frontend
+        dest: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup/B2C6_B2A_Frontend
+
+    - name: Run npm install
+      become: true
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+      shell:
+        cmd: npm install
+        chdir: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup/B2C6_B2A_Frontend/
+
+    - name: Replace vite.config.js with custom configuration
+      become: true
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+      ansible.builtin.copy:
+        content: |
+          import { defineConfig } from 'vite';
+
+          export default defineConfig({
+            server: {
+              host: '0.0.0.0',
+              port: 80,
+              strictPort: true,
+              cors: true
+            }
+          });
+        dest: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup/B2C6_B2A_Frontend/vite.config.js

@@ -3,14 +3,14 @@
   hosts: localhost
   tasks:
     - name: Log in to Azure
-      shell: az login ${{ secrets.LOGINCREDENTIALSAZ }}
+      shell: az login --service-principal -u {{ secrets.CLIENT_ID }} -p {{ secrets.CLIENT_SECRET }} --tenant {{ secrets.TENANT_ID }}
       register: login_output
 
     - name: Create the VM
       shell: >
-        az vm create --resource-group B2C6A --name BPAVm
+        az vm create --resource-group B2C6A --name DockerTest
         --image "Canonical:0001-com-ubuntu-minimal-jammy:minimal-22_04-lts-gen2:latest"
-        --admin-username ${{ secrets.ADMIN_USERNAME_AZ }} --assign-identity --generate-ssh-keys
+        --admin-username {{ secrets.ADMIN_USERNAME_AZ  }} --assign-identity --generate-ssh-keys
         --public-ip-sku Standard --location westeurope --size Standard_B1s
         --storage-sku Standard_LRS --nic-delete-option delete --os-disk-delete-option delete
       when: login_output is succeeded

@@ -28,3 +28,26 @@
     - name: Remove temporary backup file from container
       command: docker exec {{ container_id }} rm /tmp/db_backup_{{ timestamp }}.sql
       become: yes
+
+    - name: Fetch backup file to control machine
+      fetch:
+        src: "{{ backup_dir }}/db_backup_{{ timestamp }}.sql"
+        dest: "./"
+        flat: yes
+      become: yes
+
+- hosts: dbbackup
+  vars:
+    backup_dir: "/home/{{ secrets.ADMIN_USERNAME_AZ  }}/backups"
+  tasks:
+    - name: Create backup directory on DBBackup VM
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+      become: yes
+
+    - name: Copy backup file to DBBackup VM
+      copy:
+        src: "./db_backup_{{ hostvars['database']['timestamp'] }}.sql"
+        dest: "{{ backup_dir }}/db_backup_{{ hostvars['database']['timestamp'] }}.sql"
+      become: yes

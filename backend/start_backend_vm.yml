@@ -3,18 +3,18 @@
   hosts: localhost
   tasks:
     - name: Log in to Azure
-      shell: az login ${{ secrets.LOGINCREDENTIALSAZ }}
+      shell: az login --service-principal -u {{ secrets.CLIENT_ID }} -p {{ secrets.CLIENT_SECRET }} --tenant {{ secrets.TENANT_ID }}
       register: login_output
 
     - name: Start the VM
-      shell: az vm start --resource-group B2C6A --name DevOpsB2aVmV3
+      shell: az vm start --resource-group B2C6A --name backend-backupTest
       when: login_output is succeeded
 
 - name: Setup and start backend application
-  hosts: backend
+  hosts: backendtest
   tasks:
-    - name: Activate virtual environment and start backend application
-      shell:
-        cmd: |
-          /home/${{ secrets.ADMIN_USERNAME_AZ }}/myproject2/venv/bin/python3 /home/${{ secrets.ADMIN_USERNAME_AZ }}/myproject2/Backend_B2A.py
+    - name: Navigate to directory and start backend application
+      shell: python3 Backend_B2A.py
+      args:
+        chdir: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/B2C6_B2A_Backend
       become: true

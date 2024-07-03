@@ -1,0 +1,115 @@
+- name: Create Azure VM and Setup Backend
+  hosts: localhost
+  tasks:
+    - name: Log in to Azure
+      shell: az login --service-principal -u {{ secrets.CLIENT_ID }} -p {{ secrets.CLIENT_SECRET }} --tenant {{ secrets.TENANT_ID }}
+      register: login_output
+
+    - name: Create the VM
+      shell: >
+        az vm create --resource-group B2C6A --name backend-backupv18
+        --image "Canonical:0001-com-ubuntu-minimal-jammy:minimal-22_04-lts-gen2:latest"
+        --admin-username {{ secrets.ADMIN_USERNAME_AZ  }} --assign-identity --generate-ssh-keys
+        --public-ip-sku Standard --location westeurope --size Standard_B1s
+        --storage-sku Standard_LRS --nic-delete-option delete --os-disk-delete-option delete
+      register: create_vm_output
+      when: login_output is succeeded
+
+    - name: Open port 5000 on the VM
+      shell: az vm open-port --resource-group B2C6A --name backend-backupv18 --port 5000 --priority 1500
+      when: create_vm_output is succeeded
+
+    - name: Wait for the VM to be ready
+      pause:
+        minutes: 2
+      when: create_vm_output is succeeded
+
+    - name: Get the public IP of the new VM
+      shell: az vm list-ip-addresses --resource-group B2C6A --name backend-backupv18 --query "[].virtualMachine.network.publicIpAddresses[].ipAddress" -o tsv
+      register: vm_ip
+
+    - name: Add the new VM to a temporary inventory
+      add_host:
+        name: backend-backupv18
+        ansible_host: "{{ vm_ip.stdout }}"
+        ansible_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+        ansible_ssh_private_key_file: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/ansibleproject/backup-backend-private-key
+
+- name: Automate backend setup
+  hosts: backend-backupv18
+  gather_facts: false
+  tasks:
+    - name: Check if backend is reachable
+      ping:
+
+    - name: Install required packages
+      become: true
+      apt:
+        name:
+          - git
+          - python3
+          - python3-pip
+          - pkg-config
+          - libmysqlclient-dev
+          - python3-venv
+        state: present
+        update_cache: yes
+
+    - name: Ensure pip-installed binaries are on PATH
+      become: true
+      lineinfile:
+        path: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/.bashrc
+        line: 'export PATH=$PATH:/home/{{ secrets.ADMIN_USERNAME_AZ  }}/.local/bin'
+        create: yes
+
+    - name: Reload bashrc to update PATH
+      become: true
+      shell: "bash -c 'source /home/{{ secrets.ADMIN_USERNAME_AZ  }}/.bashrc'"
+
+    - name: Create virtual environment
+      become: true
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+      command: python3 -m venv /home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup/venv
+
+    - name: Create backup directory
+      become: true
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+      file:
+        path: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup
+        state: directory
+
+    - name: Clone repository B2C6_B2A_Backend into backup directory
+      become: true
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+      git:
+        repo: https://github.com/ZuydUniversity/B2C6_B2A_Backend.git
+        dest: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup/B2C6_B2A_Backend
+
+    - name: Modify Backend_B2A.py
+      become: true
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+      lineinfile:
+        path: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup/B2C6_B2A_Backend/Backend_B2A.py
+        regexp: '^(.*app.run\(debug=True\))'
+        line: "\tapp.run(host='0.0.0.0', port=5000, debug=True)"
+
+    - name: Install Python dependencies from requirements.txt in virtual environment
+      become: true
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+      shell: "/home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup/venv/bin/pip install -r /home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup/B2C6_B2A_Backend/requirements.txt"
+
+    - name: Ensure Flask and werkzeug are compatible versions
+      become: true
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
+      shell: "/home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup/venv/bin/pip install Flask==2.0.3 werkzeug==2.0.3"
+
+    - name: Add environment activation to bashrc
+      become: true
+      lineinfile:
+        path: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/.bashrc
+        line: 'source /home/{{ secrets.ADMIN_USERNAME_AZ  }}/backup/venv/bin/activate'
+        create: yes
+
+    - name: Reload bashrc to activate virtual environment
+      become: true
+      shell: "bash -c 'source /home/{{ secrets.ADMIN_USERNAME_AZ  }}/.bashrc'"

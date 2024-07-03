@@ -1,6 +1,6 @@
 ---
 - name: Automate backend setup
-  hosts: backend
+  hosts: backendtest
   gather_facts: false
 
   tasks:
@@ -9,39 +9,22 @@
 
     - name: Ensure myproject4 directory exists
       become: true
-      become_user: ${{ secrets.ADMIN_USERNAME_AZ }}
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
       file:
-        path: /home/${{ secrets.ADMIN_USERNAME_AZ }}/myproject4
+        path: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/myproject4
         state: directory
 
     - name: Clone repository B2C6_B2A_Backend into myproject4 directory
       become: true
-      become_user: ${{ secrets.ADMIN_USERNAME_AZ }}
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
       git:
         repo: https://github.com/ZuydUniversity/B2C6_B2A_Backend.git
-        dest: /home/${{ secrets.ADMIN_USERNAME_AZ }}/myproject4/B2C6_B2A_Backend
+        dest: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/myproject4/B2C6_B2A_Backend
 
     - name: Modify Backend_B2A.py
       become: true
-      become_user: ${{ secrets.ADMIN_USERNAME_AZ }}
+      become_user: {{ secrets.ADMIN_USERNAME_AZ  }}
       lineinfile:
-        path: /home/${{ secrets.ADMIN_USERNAME_AZ }}/myproject4/B2C6_B2A_Backend/Backend_B2A.py
+        path: /home/{{ secrets.ADMIN_USERNAME_AZ  }}/myproject4/B2C6_B2A_Backend/Backend_B2A.py
         regexp: '^(.*app.run\(debug=True\))'
         line: "\tapp.run(host='0.0.0.0', port=5000, debug=True)"
-
-    - name: Copy venv from myproject2 to myproject4
-      become: true
-      become_user: ${{ secrets.ADMIN_USERNAME_AZ }}
-      copy:
-        src: /home/${{ secrets.ADMIN_USERNAME_AZ }}/myproject2/venv
-        dest: /home/${{ secrets.ADMIN_USERNAME_AZ }}/myproject4/B2C6_B2A_Backend
-        remote_src: yes
-
-    - name: Activate virtual environment and install requirements
-      become: true
-      become_user: ${{ secrets.ADMIN_USERNAME_AZ }}
-      shell: |
-        source ~/myproject4/venv/bin/activate
-        pip install -r ~/myproject4/B2C6_B2A_Backend/requirements.txt
-      args:
-        executable: /bin/bash
